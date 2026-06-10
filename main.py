@@ -23,14 +23,14 @@ def main():
     overlay = OverlayWindow()
 
     def on_transcription(result):
-        overlay.update_subtitle(result.text, result.is_final)
+        overlay.update_subtitle(english=result.text, spanish="")
 
     def on_translation(original, translated, ts):
-        overlay.update_subtitle(translated, True)
+        overlay.update_subtitle(english=original, spanish=translated)
 
     def on_error(msg):
         print(f"Error: {msg}")
-        overlay.update_subtitle(f"Error: {msg}", True)
+        overlay.update_subtitle(english=f"Error: {msg}", spanish="")
 
     def on_devices(devices):
         overlay.set_devices(devices)
@@ -42,11 +42,15 @@ def main():
     def on_device_change(device_index):
         pipeline.set_device(device_index)
 
+    def on_silence():
+        overlay.clear_subtitle()
+
     pipeline.set_callbacks(
         on_transcription=on_transcription,
         on_translation=on_translation,
         on_error=on_error,
         on_device_list=on_devices,
+        on_silence=on_silence,
     )
     overlay.set_start_callback(on_start)
     overlay.set_device_change_callback(on_device_change)

@@ -7,7 +7,7 @@ from typing import Callable, Optional, List, Tuple
 
 
 class AudioCapture:
-    def __init__(self, chunk_ms: int = 33, target_sample_rate: int = 16000):
+    def __init__(self, chunk_ms: int = 66, target_sample_rate: int = 16000):
         self.chunk_ms = chunk_ms
         self.target_sample_rate = target_sample_rate
         self._callback: Optional[Callable[[np.ndarray], None]] = None

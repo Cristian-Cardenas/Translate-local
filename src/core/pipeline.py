@@ -20,15 +20,16 @@ class PipelineCallbacks:
     on_translation: Optional[Callable[[str, str, int], None]] = None
     on_error: Optional[Callable[[str], None]] = None
     on_device_list: Optional[Callable[[list], None]] = None
+    on_silence: Optional[Callable[[], None]] = None
 
 
 class Pipeline:
     def __init__(self, models_dir: str = "models"):
         self.models_dir = models_dir
         self.callbacks = PipelineCallbacks()
-        self._audio = AudioCapture(chunk_ms=33, target_sample_rate=16000)
+        self._audio = AudioCapture(chunk_ms=66, target_sample_rate=16000)
         self._transcriber = Transcriber(
-            model_path="tiny.en",
+            model_path="base.en",
             device="cuda",
             compute_type="float16"
         )
@@ -36,6 +37,8 @@ class Pipeline:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._audio_queue = queue.Queue(maxsize=30)
+        self._last_speech_time = 0
+        self._silence_threshold_sec = 2.5
 
     def set_callbacks(self, **kwargs):
         for k, v in kwargs.items():
@@ -105,15 +108,16 @@ class Pipeline:
             if chunks_processed % 30 == 0:
                 logger.info(f"Audio chunks received: {chunks_processed}, queue size: {self._audio_queue.qsize()}")
 
-            logger.debug(f"Processing chunk {chunks_processed}, shape={audio_data.shape}, min={audio_data.min():.4f}, max={audio_data.max():.4f}")
             result = self._transcriber.process(audio_data)
             if result:
-                logger.info(f"Transcription: text='{result.text}', lang={result.language}, conf={result.confidence:.2f}, final={result.is_final}")
+                logger.info(f"Transcription: text='{result.text}', lang={result.language}, conf={result.confidence:.2f}")
                 if result.text:
+                    self._last_speech_time = time.time()
+
                     if self.callbacks.on_transcription:
                         self.callbacks.on_transcription(result)
 
-                    if result.is_final and result.language == "en":
+                    if result.language == "en":
                         translated = self._translator.translate(result.text)
                         logger.info(f"Translation: '{result.text}' -> '{translated}'")
                         if translated != result.text and self.callbacks.on_translation:
@@ -121,4 +125,7 @@ class Pipeline:
                                 result.text, translated, result.timestamp_ms
                             )
             else:
-                logger.debug("No transcription result")
+                if self._last_speech_time > 0 and (time.time() - self._last_speech_time) > self._silence_threshold_sec:
+                    if self.callbacks.on_silence:
+                        self.callbacks.on_silence()
+                    self._last_speech_time = 0

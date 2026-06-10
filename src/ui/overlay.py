@@ -29,20 +29,16 @@ class OverlayWindow:
         self._hwnd = None
         self._setup_window()
 
-        self.subtitle_var = tk.StringVar(value="Esperando audio...")
-        self.subtitle_label = tk.Label(
-            self.root,
-            textvariable=self.subtitle_var,
-            font=("Segoe UI", 18, "bold"),
-            fg="white",
-            bg="#222222",
-            wraplength=760,
-            justify="center",
-            padx=20,
-            pady=15,
-        )
-        self.subtitle_label.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        self.subtitle_label.pack_forget()
+        self._current_en = ""
+        self._current_es = ""
+        self._pending_english = ""
+        self._pending_spanish = ""
+        self._last_shown_en = ""
+        self._last_shown_es = ""
+        self._fade_job = None
+        self._last_update_id = 0
+
+        self._build_subtitle_ui()
 
         self.settings_visible = False
         self.settings_frame = None
@@ -54,12 +50,44 @@ class OverlayWindow:
 
         self.root.protocol("WM_DELETE_WINDOW", self.hide)
 
+    def _build_subtitle_ui(self):
+        self._sub_container = tk.Frame(self.root, bg="#222222")
+        self._sub_container.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        self._sub_container.pack_forget()
+
+        self._en_label = tk.Label(
+            self._sub_container,
+            text="",
+            font=("Segoe UI", 13),
+            fg="#b0b0b0",
+            bg="#222222",
+            wraplength=760,
+            justify="center",
+            anchor="center",
+        )
+        self._en_label.pack(fill=tk.X, padx=10, pady=(6, 2))
+
+        self._sep_line = tk.Frame(self._sub_container, bg="#444444", height=1)
+        self._sep_line.pack(fill=tk.X, padx=20, pady=2)
+
+        self._es_label = tk.Label(
+            self._sub_container,
+            text="",
+            font=("Segoe UI", 18, "bold"),
+            fg="white",
+            bg="#222222",
+            wraplength=760,
+            justify="center",
+            anchor="center",
+        )
+        self._es_label.pack(fill=tk.X, padx=10, pady=(2, 6))
+
     def _setup_window(self):
         self.root.update_idletasks()
         self._hwnd = self.root.winfo_id()
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
-        w, h = 800, 120
+        w, h = 800, 140
         x = (screen_w - w) // 2
         y = screen_h - h - 80
         self.root.geometry(f"{w}x{h}+{x}+{y}")
@@ -136,7 +164,7 @@ class OverlayWindow:
         if self.settings_frame:
             self.settings_frame.destroy()
             self.settings_frame = None
-        self.subtitle_label.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self._sub_container.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         self._make_click_through()
         self._setup_window()
 
@@ -164,14 +192,71 @@ class OverlayWindow:
         if self.on_start_callback:
             self.on_start_callback()
 
-    def update_subtitle(self, text: str, is_final: bool = True):
+    def update_subtitle(self, english: str, spanish: str):
         if self.root:
-            self.root.after(0, lambda: self._do_update_subtitle(text, is_final))
+            self._last_update_id += 1
+            update_id = self._last_update_id
+            self._pending_english = english
+            self._pending_spanish = spanish
+            if self._fade_job:
+                self.root.after_cancel(self._fade_job)
+            self._fade_job = self.root.after(30, lambda: self._do_update_subtitle(update_id))
 
-    def _do_update_subtitle(self, text: str, is_final: bool):
-        self.subtitle_var.set(text)
-        color = "#222222" if is_final else "#333333"
-        self.subtitle_label.config(bg=color)
+    def _do_update_subtitle(self, update_id: int):
+        if update_id != self._last_update_id:
+            return
+
+        english = self._pending_english
+        spanish = self._pending_spanish
+
+        new_en = english.strip()
+        new_es = spanish.strip()
+
+        if new_en == self._last_shown_en and new_es == self._last_shown_es:
+            return
+
+        self._current_en = new_en
+        self._current_es = new_es
+        self._last_shown_en = new_en
+        self._last_shown_es = new_es
+
+        self._en_label.config(text=self._current_en)
+        self._es_label.config(text=self._current_es)
+
+        has_content = bool(self._current_en or self._current_es)
+        if has_content:
+            self._sub_container.config(bg="#222222")
+            self._en_label.config(bg="#222222")
+            self._sep_line.config(bg="#444444")
+            self._es_label.config(bg="#222222")
+        else:
+            self._sub_container.config(bg="#1a1a1a")
+            self._en_label.config(bg="#1a1a1a")
+            self._sep_line.config(bg="#1a1a1a")
+            self._es_label.config(bg="#1a1a1a")
+
+    def clear_subtitle(self):
+        if self.root:
+            self._last_update_id += 1
+            update_id = self._last_update_id
+            if self._fade_job:
+                self.root.after_cancel(self._fade_job)
+                self._fade_job = None
+            self.root.after(0, lambda: self._do_clear_subtitle(update_id))
+
+    def _do_clear_subtitle(self, update_id: int):
+        if update_id != self._last_update_id:
+            return
+        self._current_en = ""
+        self._current_es = ""
+        self._last_shown_en = ""
+        self._last_shown_es = ""
+        self._en_label.config(text="")
+        self._es_label.config(text="")
+        self._sub_container.config(bg="#1a1a1a")
+        self._en_label.config(bg="#1a1a1a")
+        self._sep_line.config(bg="#1a1a1a")
+        self._es_label.config(bg="#1a1a1a")
 
     def set_start_callback(self, cb: Callable):
         self.on_start_callback = cb

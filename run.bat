@@ -19,8 +19,8 @@ if errorlevel 1 (
 )
 
 echo.
-echo Descargando modelo Whisper tiny.en (primera vez ~39 MB)...
-python -c "from faster_whisper import WhisperModel; WhisperModel('tiny.en', device='cuda', compute_type='float16')" 2>nul || (
+echo Descargando modelo Whisper base.en (primera vez ~142 MB)...
+python -c "from faster_whisper import WhisperModel; WhisperModel('base.en', device='cuda', compute_type='float16')" 2>nul || (
     echo Modelo se descargara automaticamente al iniciar
 )
 

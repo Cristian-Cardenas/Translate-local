@@ -2,7 +2,7 @@ from faster_whisper import WhisperModel
 import numpy as np
 import threading
 import time
-from typing import Optional
+from typing import Optional, List
 from dataclasses import dataclass
 import logging
 
@@ -15,19 +15,20 @@ class TranscriptionResult:
     language: str
     confidence: float
     timestamp_ms: int
-    is_final: bool
 
 
 class Transcriber:
-    def __init__(self, model_path: str = "tiny.en", device: str = "cuda", compute_type: str = "float16"):
+    def __init__(self, model_path: str = "base.en", device: str = "cuda", compute_type: str = "float16"):
         self.model_path = model_path
         self.device = device
         self.compute_type = compute_type
         self._model: Optional[WhisperModel] = None
         self._buffer = np.array([], dtype=np.float32)
         self._lock = threading.Lock()
-        self._min_samples = 16000 * 2
+        self._min_samples = 16000 * 3
         self._max_samples = 16000 * 30
+        self._overlap_samples = 16000 * 1
+        self._last_text = ""
 
     def initialize(self) -> bool:
         try:
@@ -49,49 +50,65 @@ class Transcriber:
 
         with self._lock:
             self._buffer = np.concatenate([self._buffer, audio_chunk])
-            if len(self._buffer) > self._max_samples:
-                self._buffer = self._buffer[-self._max_samples:]
 
             if len(self._buffer) < self._min_samples:
-                logger.debug(f"Buffer too small: {len(self._buffer)} < {self._min_samples}")
                 return None
 
             audio_copy = self._buffer.copy()
-            logger.debug(f"Transcribing buffer: {len(audio_copy)} samples ({len(audio_copy)/16000:.1f}s)")
 
         try:
             segments, info = self._model.transcribe(
                 audio_copy,
                 language="en",
-                beam_size=1,
-                best_of=1,
-                patience=1.0,
+                beam_size=2,
+                best_of=2,
+                patience=1.2,
                 length_penalty=1.0,
-                temperature=0.0,
+                temperature=(0.0, 0.2, 0.4),
                 compression_ratio_threshold=2.4,
                 log_prob_threshold=-1.0,
-                no_speech_threshold=0.6,
+                no_speech_threshold=0.5,
                 condition_on_previous_text=False,
-                initial_prompt=None,
+                initial_prompt="",
                 word_timestamps=False,
                 vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=500),
+                vad_parameters=dict(
+                    min_silence_duration_ms=800,
+                    speech_pad_ms=400,
+                    threshold=0.35,
+                ),
             )
 
-            result = None
-            for i, segment in enumerate(segments):
-                logger.debug(f"Segment {i}: '{segment.text}' (start={segment.start:.2f}, end={segment.end:.2f}, avg_logprob={segment.avg_logprob:.4f})")
-                if segment.text.strip():
-                    result = TranscriptionResult(
-                        text=segment.text.strip(),
-                        language=info.language,
-                        confidence=1.0 - segment.avg_logprob,
-                        timestamp_ms=int((segment.start + segment.end) * 500),
-                        is_final=(i == 0),
-                    )
-                    break
+            texts = []
+            total_conf = 0.0
+            count = 0
+            for segment in segments:
+                text = segment.text.strip()
+                if text:
+                    texts.append(text)
+                    total_conf += 1.0 - segment.avg_logprob
+                    count += 1
 
-            return result
+            if texts:
+                combined_text = " ".join(texts)
+                avg_conf = total_conf / count if count > 0 else 0.0
+
+                if combined_text != self._last_text:
+                    self._last_text = combined_text
+                    with self._lock:
+                        self._buffer = self._buffer[-self._overlap_samples:]
+
+                    return TranscriptionResult(
+                        text=combined_text,
+                        language=info.language,
+                        confidence=avg_conf,
+                        timestamp_ms=int(time.time() * 1000),
+                    )
+                else:
+                    with self._lock:
+                        self._buffer = self._buffer[-self._overlap_samples:]
+
+            return None
 
         except Exception as e:
             logger.error(f"Transcription error: {e}")
@@ -100,3 +117,4 @@ class Transcriber:
     def reset_buffer(self):
         with self._lock:
             self._buffer = np.array([], dtype=np.float32)
+            self._last_text = ""
