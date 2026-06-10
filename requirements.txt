@@ -1,0 +1,5 @@
+faster-whisper
+argostranslate
+pyaudiowpatch
+numpy>=2.0
+psutil>=5.9
