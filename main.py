@@ -1,10 +1,8 @@
 import sys
 import os
 import threading
-import time
 from pathlib import Path
 
-# Agregar CUDA al PATH antes de importar faster-whisper
 cuda_path = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2\bin"
 if os.path.exists(cuda_path):
     os.environ["PATH"] = cuda_path + ";" + os.environ["PATH"]
@@ -23,7 +21,7 @@ def main():
     overlay = OverlayWindow()
 
     def on_transcription(result):
-        overlay.update_subtitle(english=result.text, spanish="")
+        pass
 
     def on_translation(original, translated, ts):
         overlay.update_subtitle(english=original, spanish=translated)

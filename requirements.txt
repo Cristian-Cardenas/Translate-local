@@ -1,5 +1,7 @@
-faster-whisper
-argostranslate
+requests
+deep-translator
 pyaudiowpatch
 numpy>=2.0
 psutil>=5.9
+faster-whisper
+noisereduce

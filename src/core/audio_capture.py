@@ -5,11 +5,16 @@ import queue
 import time
 from typing import Callable, Optional, List, Tuple
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class AudioCapture:
-    def __init__(self, chunk_ms: int = 66, target_sample_rate: int = 16000):
+    def __init__(self, chunk_ms: int = 66, target_sample_rate: int = 16000, noise_reduce: bool = True):
         self.chunk_ms = chunk_ms
         self.target_sample_rate = target_sample_rate
+        self.noise_reduce = noise_reduce
         self._callback: Optional[Callable[[np.ndarray], None]] = None
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -19,6 +24,15 @@ class AudioCapture:
         self._audio_queue = queue.Queue(maxsize=30)
         self._device_sample_rate = 48000
         self._device_channels = 2
+        self._nr_module = None
+        if noise_reduce:
+            try:
+                import noisereduce as nr
+                self._nr_module = nr
+                logger.info("Noise reduction enabled (noisereduce)")
+            except ImportError:
+                logger.warning("noisereduce not installed, noise reduction disabled")
+                self.noise_reduce = False
 
     def enumerate_devices(self) -> List[Tuple[int, str, bool]]:
         devices = []
@@ -128,6 +142,17 @@ class AudioCapture:
                     new_length = int(len(audio_data) * ratio)
                     indices = np.linspace(0, len(audio_data) - 1, new_length)
                     audio_data = np.interp(indices, np.arange(len(audio_data)), audio_data).astype(np.float32)
+                # Apply noise reduction
+                if self.noise_reduce and self._nr_module is not None:
+                    try:
+                        audio_data = self._nr_module.reduce_noise(
+                            y=audio_data,
+                            sr=self.target_sample_rate,
+                            stationary=False,
+                            prop_decrease=0.8
+                        )
+                    except Exception:
+                        pass
                 self._audio_queue.put_nowait(audio_data)
             except queue.Full:
                 pass
